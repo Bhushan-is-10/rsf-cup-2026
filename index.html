@@ -213,7 +213,7 @@
   .fm{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:3px;font:italic 800 12px var(--cond);color:#fff;margin:0 2px}
   .fm.W{background:#12805C} .fm.D{background:#8B8FA8} .fm.L{background:#E5252A}
   .h2h-row .fm{color:#fff;font-size:12px;letter-spacing:0;text-transform:none}
-  .center .pill.live{margin-bottom:12px}
+  .center .pill.live,.center .pill.ft{margin-bottom:12px}
   .pname{flex-wrap:wrap;gap:4px 0}
   .rtag{margin-left:8px;padding:1px 8px;border-radius:2px;transform:skewX(-10deg);font-family:var(--cond);font-style:italic;font-weight:700;font-size:12px;letter-spacing:.6px;text-transform:uppercase;background:#E7E9F8;color:#1D2060}
   .rtag.att{background:#FFE0EA;color:#B0123F} .rtag.mid{background:#DDF4FF;color:#00698C} .rtag.def{background:#E3F6EA;color:#12664A}
@@ -307,6 +307,7 @@ const ROLE_AREA = {
   'Enforcer': 'def',
   'Sweeper': 'def'
 };
+const byTime = (a, b) => (a.match_day || '9999-12-31').localeCompare(b.match_day || '9999-12-31') || (a.kickoff || '99:99').localeCompare(b.kickoff || '99:99') || matchKey(a) - matchKey(b);
 const isWomen = m => m.stage === 'WG' || m.stage === 'WF';
 const compLabel = m => m.stage === 'group' ? `Group ${m.grp}` : ROUND_LABEL[m.stage] || '';
 const groupLabel = g => g === 'W' ? "Women's tournament" : `Group ${g}`;
@@ -651,7 +652,9 @@ function MatchCard({
     className: "center"
   }, live && React.createElement("span", {
     className: "pill live"
-  }, "Live"), live || done ? React.createElement("div", {
+  }, "Live"), done && React.createElement("span", {
+    className: "pill ft"
+  }, "Full time"), live || done ? React.createElement("div", {
     className: "score"
   }, m.score_a ?? 0, " - ", m.score_b ?? 0) : React.createElement(React.Fragment, null, React.createElement("div", {
     className: "when"
@@ -659,7 +662,7 @@ function MatchCard({
     className: "time"
   }, fmtTime(m.kickoff))), React.createElement("div", {
     className: "sub"
-  }, done ? 'Full time' : live ? '' : 'Upcoming', m.ground ? `${done || !live ? ' · ' : ''}${m.ground}` : ''), R.series(m) && React.createElement("div", {
+  }, !done && !live ? 'Upcoming' : '', m.ground ? `${!done && !live ? ' · ' : ''}${m.ground}` : ''), R.series(m) && React.createElement("div", {
     className: "sub"
   }, "Series ", R.series(m).a, " - ", R.series(m).b)), React.createElement("div", {
     className: "side"
@@ -869,6 +872,179 @@ function SlotRow({
     className: "btn ghost",
     onClick: save
   }, "Save match ", m.match_no));
+}
+function PlayerAdmin({
+  D,
+  call
+}) {
+  const {
+    contacts
+  } = useContext(Ctx);
+  const teams = [...D.teams].sort((a, b) => a.name.localeCompare(b.name));
+  const [tid, setTid] = useState('');
+  const [form, setForm] = useState(null);
+  const squad = D.players.filter(p => p.team_id === tid && p.active !== false);
+  const former = D.players.filter(p => p.team_id === tid && p.active === false);
+  const remove = async p => {
+    if (confirm(`Remove ${p.name} from the squad? Past matches and goals keep ${p.name}.`)) await call('set_player_active', {
+      p_player: p.id,
+      p_active: false
+    });
+  };
+  return React.createElement("div", null, React.createElement("div", {
+    className: "note"
+  }, React.createElement("b", null, "Edit"), " = the same person (spelling, role, captain, mobile). Their goals and lineups follow a name change.", React.createElement("br", null), React.createElement("b", null, "Replace"), " = a different person. The old player stays in past matches with their goals. The new player starts with none."), React.createElement("div", {
+    className: "row"
+  }, React.createElement("select", {
+    "aria-label": "Team",
+    value: tid,
+    onChange: e => {
+      setTid(e.target.value);
+      setForm(null);
+    },
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, React.createElement("option", {
+    value: ""
+  }, "Choose a team"), teams.map(t => React.createElement("option", {
+    key: t.id,
+    value: t.id
+  }, t.code, " - ", t.name)))), tid && squad.map(p => React.createElement("div", {
+    className: "card",
+    key: p.id
+  }, React.createElement("div", {
+    className: "prow first",
+    style: {
+      borderTop: 0
+    }
+  }, React.createElement("span", {
+    className: "pname"
+  }, p.name, p.is_captain && React.createElement("span", {
+    className: "cap"
+  }, "C"), p.role && React.createElement("span", {
+    className: 'rtag ' + (ROLE_AREA[p.role] || '')
+  }, p.role))), form && form.id === p.id ? React.createElement(PlayerForm, {
+    key: form.type + p.id,
+    p: p,
+    type: form.type,
+    mobile: contacts[p.id] || '',
+    call: call,
+    done: () => setForm(null)
+  }) : React.createElement("div", {
+    className: "row"
+  }, React.createElement("button", {
+    className: "btn ghost",
+    onClick: () => setForm({
+      id: p.id,
+      type: 'edit'
+    })
+  }, "Edit"), React.createElement("button", {
+    className: "btn ghost",
+    onClick: () => setForm({
+      id: p.id,
+      type: 'replace'
+    })
+  }, "Replace"), React.createElement("button", {
+    className: "btn ghost",
+    onClick: () => remove(p)
+  }, "Remove")))), tid && !squad.length && React.createElement("div", {
+    className: "note"
+  }, "No active players in this team."), former.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "k"
+  }, "Former players (kept in past matches)"), former.map(p => React.createElement("div", {
+    className: "prow",
+    key: p.id
+  }, React.createElement("span", {
+    className: "muted"
+  }, p.name), React.createElement("button", {
+    className: "btn ghost",
+    onClick: () => call('set_player_active', {
+      p_player: p.id,
+      p_active: true
+    })
+  }, "Restore")))));
+}
+function PlayerForm({
+  p,
+  type,
+  mobile,
+  call,
+  done
+}) {
+  const edit = type === 'edit';
+  const [name, setName] = useState(edit ? p.name : ''),
+    [role, setRole] = useState(edit ? p.role || '' : ''),
+    [cap, setCap] = useState(!!p.is_captain),
+    [mob, setMob] = useState(edit ? mobile : '');
+  const go = async () => {
+    if (!name.trim()) {
+      alert('Enter the player name.');
+      return;
+    }
+    if (edit ? await call('edit_player', {
+      p_player: p.id,
+      p_name: name.trim(),
+      p_role: role,
+      p_captain: cap,
+      p_mobile: mob
+    }) : await call('replace_player', {
+      p_old: p.id,
+      p_name: name.trim(),
+      p_role: role,
+      p_captain: cap,
+      p_mobile: mob
+    })) done();
+  };
+  return React.createElement("div", null, React.createElement("div", {
+    className: "note"
+  }, edit ? 'Same person. Changes apply to this player everywhere.' : `Different person. ${p.name} stays in past matches. The new player starts with no goals.`), React.createElement("div", {
+    className: "row"
+  }, React.createElement("input", {
+    placeholder: edit ? 'Player name' : 'New player name',
+    value: name,
+    onChange: e => setName(e.target.value),
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  })), React.createElement("div", {
+    className: "row"
+  }, React.createElement("select", {
+    "aria-label": "Role",
+    value: role,
+    onChange: e => setRole(e.target.value)
+  }, React.createElement("option", {
+    value: ""
+  }, "No role"), Object.keys(ROLE_AREA).map(r => React.createElement("option", {
+    key: r
+  }, r))), React.createElement("label", {
+    className: "chk"
+  }, React.createElement("input", {
+    type: "checkbox",
+    checked: cap,
+    onChange: e => setCap(e.target.checked)
+  }), "Captain")), React.createElement("div", {
+    className: "row"
+  }, React.createElement("input", {
+    placeholder: "Mobile",
+    inputMode: "tel",
+    value: mob,
+    onChange: e => setMob(e.target.value),
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  })), React.createElement("div", {
+    className: "row"
+  }, React.createElement("button", {
+    className: "btn",
+    onClick: go
+  }, edit ? 'Save changes' : 'Replace player'), React.createElement("button", {
+    className: "btn ghost",
+    onClick: done
+  }, "Cancel")));
 }
 const RULES = [['Venue & Schedule', ['Venue: RCP Football Ground.', 'Match dates are subject to ground availability and may be changed by organizers.']], ['Tournament Format', ['Group Stage -> Pre-Quarter Finals -> Quarter Finals -> Semi Finals -> Final.', 'Win 3 points, Draw 1 point, Loss 0 points.', 'Tie-breakers: Goal Difference, Head-to-Head, Goals Conceded, Goals Scored, Disciplinary Record, Coin Toss.', 'Knockout matches are single elimination.']], ['Team & Player Eligibility', ['6 players on field plus 4 substitutes.', 'Registered player list required before tournament.', 'Reliance Employee ID mandatory.', 'A player may represent only one team.', 'Only registered players may participate.', 'Teams must report 15 minutes before kickoff.']], ['Substitutions', ['Rolling substitutions permitted.', 'Only when ball is out of play.', 'Referee approval required.', 'Incoming player enters after outgoing player exits.', 'Substituted players may return.']], ['Gameplay', ['No offside.', 'No player may use hands, including goalkeeper/last player.', 'All free kicks are indirect.', 'Deliberate handball may result in free kick or penalty.', 'Penalty is taken without a goalkeeper.', 'Sideline restarts are kick-ins.', 'Carpet ball mandatory for kick-ins.', 'Corners may be taken normally.', 'Other restarts as directed by referee.', 'Referee decisions are final.']], ['No Player Zone', ['Marked zone in front of goal.', 'Players of both teams must remain outside.', 'Entering the zone is a foul.', 'Referee may award indirect free kick or penalty.']], ['Discipline', ['Yellow Card: 2-minute suspension.', 'Red Card: Permanent dismissal, no replacement.', 'Pitch invasion results in immediate team disqualification.', 'Verbal abuse, threats, discrimination and dangerous play prohibited.', 'Serious violations may lead to removal from tournament.']], ['Kit & Safety', ['Football/turf shoes mandatory.', 'Shin guards strongly recommended.', 'No barefoot play or unsuitable footwear.', 'No jewellery, watches, phones or accessories on field.', 'Alternate bibs may be required for similar jersey colours.']], ['Match Start & Walkover', ['Teams report 15 minutes before match.', 'Minimum 4 players required to start.', 'Failure to field 4 players within 5 minutes may result in 3-0 walkover.']], ['Knockout Stages', ['Draws decided by penalty shootout.', 'Three penalties per team.', 'Then sudden death if tied.', 'Penalty takers must be registered players.', 'Coin toss may be used if required.']], ['Referee & Match Officials', ['Match officials have final decision on incidents.', 'For uncovered matters, officials/organizers decision is final.', 'Teams must follow officials instructions.']], ['Spectators & Supporters', ['Remain in designated seating area.', 'No entry to playing area during match.', 'Appropriate conduct required.']]];
 function Rules() {
@@ -1388,13 +1564,13 @@ function TeamPage({
 }) {
   const team = D.teams.find(t => t.id === id);
   if (!team) return React.createElement(React.Fragment, null, React.createElement(Back, null), React.createElement(Empty, null, "Team not found."));
-  const squad = D.players.filter(p => p.team_id === id).sort((a, b) => (b.is_captain ? 1 : 0) - (a.is_captain ? 1 : 0));
+  const squad = D.players.filter(p => p.team_id === id && p.active !== false).sort((a, b) => (b.is_captain ? 1 : 0) - (a.is_captain ? 1 : 0));
   const list = teamMatches(id, R, D.matches);
   const st = teamStats(id, list, D.goals, R);
   const gs = standings[team.grp];
   const idx = gs ? gs.rows.findIndex(r => r.team.id === id) : -1;
   const pts = idx >= 0 ? gs.rows[idx].pts : 0;
-  const upcoming = list.filter(m => !isFinal(m));
+  const upcoming = list.filter(m => !isFinal(m)).sort(byTime);
   const results = list.filter(isFinal);
   const status = gs && gs.complete ? idx < ADVANCE_PER_GROUP ? team.grp === 'W' ? 'Qualified for the final' : 'Qualified for the knockout stage' : 'Out of the tournament' : null;
   const tile = (v, k) => React.createElement("div", {
@@ -1462,9 +1638,10 @@ function LineupBlock({
   const {
     openTeam
   } = useContext(Ctx);
-  const squad = D.players.filter(p => p.team_id === team.id);
+  const all = D.players.filter(p => p.team_id === team.id),
+    squad = all.filter(p => p.active !== false);
   const rows = D.lineups.filter(l => l.match_id === m.id && l.team_id === team.id);
-  const pick = starter => rows.filter(l => !!l.starter === starter).map(l => squad.find(p => p.id === l.player_id)).filter(Boolean);
+  const pick = starter => rows.filter(l => !!l.starter === starter).map(l => all.find(p => p.id === l.player_id)).filter(Boolean);
   const starters = pick(true),
     subs = pick(false);
   return React.createElement("div", {
@@ -1510,7 +1687,7 @@ function MatchPage({
   } = R.sides(m);
   const tm = Object.fromEntries(D.teams.map(t => [t.id, t]));
   const goals = D.goals.filter(g => g.match_id === id).sort((x, y) => (x.minute ?? 99) - (y.minute ?? 99));
-  const capOf = t => t && D.players.find(p => p.team_id === t.id && p.is_captain);
+  const capOf = t => t && D.players.find(p => p.team_id === t.id && p.is_captain && p.active !== false);
   const status = m.status === 'live' ? 'Live' : m.status === 'final' ? 'Full time' : 'Upcoming';
   const kv = (k, v, first) => React.createElement("div", {
     className: 'kv' + (first ? ' first' : '')
@@ -1598,8 +1775,8 @@ function LineupEditor({
 }) {
   const MAXS = 6,
     MINS = 4;
-  const squad = D.players.filter(p => p.team_id === team.id);
   const saved = D.lineups.filter(l => l.match_id === m.id && l.team_id === team.id);
+  const squad = D.players.filter(p => p.team_id === team.id && (p.active !== false || saved.some(l => l.player_id === p.id)));
   const [sel, setSel] = useState(() => new Set(saved.length ? saved.filter(l => l.starter).map(l => l.player_id) : squad.slice(0, MAXS).map(p => p.id)));
   const n = sel.size,
     bad = n > MAXS || n < MINS;
@@ -1656,7 +1833,7 @@ function Home({
 }) {
   const men = D.matches.filter(m => !isWomen(m));
   const live = men.filter(m => m.status === 'live');
-  const next = men.filter(m => m.status === 'scheduled' && R.sides(m).a && R.sides(m).b).slice(0, 5);
+  const next = men.filter(m => m.status === 'scheduled' && R.sides(m).a && R.sides(m).b).sort(byTime).slice(0, 5);
   const recent = men.filter(isFinal).slice(-5).reverse();
   return React.createElement(React.Fragment, null, live.length > 0 && React.createElement(React.Fragment, null, React.createElement("h2", {
     className: "livehead"
@@ -1741,7 +1918,7 @@ function WomenPage({
   });
   const top = Object.entries(tally).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0];
   const format = n === 2 ? 'Two teams: they play the final directly.' : n === 3 ? 'Three teams: each plays the other two in one group, then the top two play the final.' : n < 2 ? 'Waiting for teams to register.' : 'Format to be confirmed.';
-  const upcoming = ms.filter(m => !isFinal(m)),
+  const upcoming = ms.filter(m => !isFinal(m)).sort(byTime),
     results = ms.filter(isFinal);
   return React.createElement(React.Fragment, null, !tabMode && React.createElement(Back, null), React.createElement("h2", {
     style: {
@@ -1805,7 +1982,7 @@ function Fixtures({
     setStage(v);
     setSub('all');
   };
-  const list = D.matches.filter(m => !isWomen(m)).filter(m => stage === 'all' || (stage === 'group' ? m.stage === 'group' && (sub === 'all' || m.grp === sub) : m.stage !== 'group' && (sub === 'all' || m.stage === sub)));
+  const list = D.matches.filter(m => !isWomen(m)).filter(m => stage === 'all' || (stage === 'group' ? m.stage === 'group' && (sub === 'all' || m.grp === sub) : m.stage !== 'group' && (sub === 'all' || m.stage === sub))).sort(byTime);
   return React.createElement(React.Fragment, null, React.createElement("div", {
     className: "row"
   }, React.createElement("select", {
@@ -1911,6 +2088,7 @@ function Admin({
   const [msg, setMsg] = useState('');
   const [open, setOpen] = useState(null);
   const [showB, setShowB] = useState(false);
+  const [showP, setShowP] = useState(false);
   const call = async (fn, args) => {
     const {
       error
@@ -2041,6 +2219,14 @@ function Admin({
   }, showB ? 'Hide bracket pairings' : 'Edit bracket pairings')), showB && React.createElement(BracketEditor, {
     D: D,
     R: R,
+    call: call
+  }), React.createElement("div", {
+    className: "row"
+  }, React.createElement("button", {
+    className: "btn ghost",
+    onClick: () => setShowP(v => !v)
+  }, showP ? 'Hide player editing' : 'Edit players')), showP && React.createElement(PlayerAdmin, {
+    D: D,
     call: call
   }), React.createElement("div", {
     className: "row"
