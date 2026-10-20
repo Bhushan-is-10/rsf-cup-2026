@@ -222,9 +222,11 @@
 <body>
 <div id="root"></div>
 
+<script src="config.js"></script>
 <script>
-const SUPABASE_URL = 'https://fkdamzvhgndolpnbcsbd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_z-GdEAg8MnTWHnMegZnbUA_AjTBqLL7';
+const CFG = window.RSF_CONFIG || {};
+const SUPABASE_URL = CFG.url || 'https://YOUR-PROJECT.supabase.co';
+const SUPABASE_ANON_KEY = CFG.key || 'YOUR-ANON-KEY';
 const GROUND_OPTIONS = ['Ground 1', 'Ground 2', 'Ground 3'];
 const TOTAL_MATCHES = 80;
 const BEST_OF = {
@@ -408,6 +410,10 @@ function computeStandings(teams, matches) {
   }
   return res;
 }
+const nn = v => {
+  const x = Math.floor(Number(v));
+  return Number.isFinite(x) && x > 0 ? Math.min(x, 99) : 0;
+};
 const winsNeeded = n => Math.floor(n / 2) + 1;
 function visibleMatches(all) {
   const by = {};
@@ -731,6 +737,138 @@ function More() {
   }, d)), React.createElement("span", {
     className: "muted"
   }, "›"))));
+}
+function BracketEditor({
+  D,
+  R,
+  call
+}) {
+  const ko = D.matches.filter(m => m.stage !== 'group' && m.stage !== 'WG' && (m.game || 1) === 1);
+  if (!ko.length) return React.createElement("div", {
+    className: "note"
+  }, "Create the knockout bracket (or the women's fixtures) first, then set the pairings here.");
+  const r32 = ko.filter(m => m.stage === 'R32'),
+    seen = {};
+  r32.forEach(m => {
+    const x = R.sides(m);
+    [x.a, x.b].forEach(t => {
+      if (t) (seen[t.id] = seen[t.id] || []).push(m.match_no);
+    });
+  });
+  const dups = Object.entries(seen).filter(([, v]) => v.length > 1).map(([id, v]) => `${R.byId[id].code} is in matches ${v.join(' and ')}`);
+  return React.createElement("div", null, React.createElement("div", {
+    className: "note"
+  }, "Pick what fills each side of a match: a group place, the winner or loser of an earlier match, or one named team. Teams already known stay as they are until you change them. A best-of-three series changes together."), dups.length > 0 && React.createElement("div", {
+    className: "err",
+    style: {
+      marginBottom: 8
+    }
+  }, "Check: ", dups.join('. '), "."), ko.map(m => React.createElement(SlotRow, {
+    key: m.id,
+    m: m,
+    ko: ko,
+    D: D,
+    call: call
+  })));
+}
+function SlotRow({
+  m,
+  ko,
+  D,
+  call
+}) {
+  const women = m.stage === 'WF';
+  const enc = (src, team) => team ? 'team:' + team : src ? 'src:' + src : '';
+  const [a, setA] = useState(enc(m.src_a, m.team_a)),
+    [b, setB] = useState(enc(m.src_b, m.team_b));
+  const groups = [...new Set(D.teams.map(t => t.grp).filter(Boolean))].sort().filter(g => women ? g === 'W' : g !== 'W');
+  const teams = D.teams.filter(t => women ? t.grp === 'W' : t.grp !== 'W').sort((x, y) => x.name.localeCompare(y.name));
+  const earlier = women ? [] : ko.filter(x => x.stage !== 'WF' && x.match_no < m.match_no);
+  const opts = React.createElement(React.Fragment, null, React.createElement("option", {
+    value: ""
+  }, "-- choose --"), React.createElement("optgroup", {
+    label: "Group places"
+  }, groups.flatMap(g => [React.createElement("option", {
+    key: g + 1,
+    value: `src:G:${g}:1`
+  }, women ? 'Group winner' : `Winner of Group ${g}`), React.createElement("option", {
+    key: g + 2,
+    value: `src:G:${g}:2`
+  }, women ? 'Group runner-up' : `Runner-up of Group ${g}`)])), earlier.length > 0 && React.createElement("optgroup", {
+    label: "From earlier matches"
+  }, earlier.flatMap(x => [React.createElement("option", {
+    key: 'w' + x.match_no,
+    value: `src:W:${x.series_no || x.match_no}`
+  }, "Winner of match ", x.series_no || x.match_no), React.createElement("option", {
+    key: 'l' + x.match_no,
+    value: `src:L:${x.series_no || x.match_no}`
+  }, "Loser of match ", x.series_no || x.match_no)])), React.createElement("optgroup", {
+    label: "Named team"
+  }, teams.map(t => React.createElement("option", {
+    key: t.id,
+    value: 'team:' + t.id
+  }, t.code, " - ", t.name))));
+  const parse = v => v.startsWith('team:') ? {
+    team: v.slice(5),
+    src: null
+  } : v.startsWith('src:') ? {
+    team: null,
+    src: v.slice(4)
+  } : {
+    team: null,
+    src: null
+  };
+  const save = async () => {
+    if (m.status !== 'scheduled' && !confirm('This match has already started. Change its teams anyway?')) return;
+    const A = parse(a),
+      B = parse(b);
+    if (!(A.team || A.src) || !(B.team || B.src)) {
+      alert('Choose both sides first.');
+      return;
+    }
+    await call('set_slots', {
+      p_match: m.id,
+      p_src_a: A.src,
+      p_src_b: B.src,
+      p_team_a: A.team,
+      p_team_b: B.team
+    });
+  };
+  return React.createElement("div", {
+    className: "card"
+  }, React.createElement("div", {
+    className: "k",
+    style: {
+      marginTop: 0
+    }
+  }, ROUND_LABEL[m.stage], " · ", matchLabel({
+    ...m,
+    game: 1,
+    stage: 'x'
+  })), React.createElement("div", {
+    className: "row"
+  }, React.createElement("select", {
+    "aria-label": `Match ${m.match_no} side A`,
+    value: a,
+    onChange: e => setA(e.target.value),
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, opts)), React.createElement("div", {
+    className: "row"
+  }, React.createElement("select", {
+    "aria-label": `Match ${m.match_no} side B`,
+    value: b,
+    onChange: e => setB(e.target.value),
+    style: {
+      flex: 1,
+      minWidth: 0
+    }
+  }, opts)), React.createElement("button", {
+    className: "btn ghost",
+    onClick: save
+  }, "Save match ", m.match_no));
 }
 const RULES = [['Venue & Schedule', ['Venue: RCP Football Ground.', 'Match dates are subject to ground availability and may be changed by organizers.']], ['Tournament Format', ['Group Stage -> Pre-Quarter Finals -> Quarter Finals -> Semi Finals -> Final.', 'Win 3 points, Draw 1 point, Loss 0 points.', 'Tie-breakers: Goal Difference, Head-to-Head, Goals Conceded, Goals Scored, Disciplinary Record, Coin Toss.', 'Knockout matches are single elimination.']], ['Team & Player Eligibility', ['6 players on field plus 4 substitutes.', 'Registered player list required before tournament.', 'Reliance Employee ID mandatory.', 'A player may represent only one team.', 'Only registered players may participate.', 'Teams must report 15 minutes before kickoff.']], ['Substitutions', ['Rolling substitutions permitted.', 'Only when ball is out of play.', 'Referee approval required.', 'Incoming player enters after outgoing player exits.', 'Substituted players may return.']], ['Gameplay', ['No offside.', 'No player may use hands, including goalkeeper/last player.', 'All free kicks are indirect.', 'Deliberate handball may result in free kick or penalty.', 'Penalty is taken without a goalkeeper.', 'Sideline restarts are kick-ins.', 'Carpet ball mandatory for kick-ins.', 'Corners may be taken normally.', 'Other restarts as directed by referee.', 'Referee decisions are final.']], ['No Player Zone', ['Marked zone in front of goal.', 'Players of both teams must remain outside.', 'Entering the zone is a foul.', 'Referee may award indirect free kick or penalty.']], ['Discipline', ['Yellow Card: 2-minute suspension.', 'Red Card: Permanent dismissal, no replacement.', 'Pitch invasion results in immediate team disqualification.', 'Verbal abuse, threats, discrimination and dangerous play prohibited.', 'Serious violations may lead to removal from tournament.']], ['Kit & Safety', ['Football/turf shoes mandatory.', 'Shin guards strongly recommended.', 'No barefoot play or unsuitable footwear.', 'No jewellery, watches, phones or accessories on field.', 'Alternate bibs may be required for similar jersey colours.']], ['Match Start & Walkover', ['Teams report 15 minutes before match.', 'Minimum 4 players required to start.', 'Failure to field 4 players within 5 minutes may result in 3-0 walkover.']], ['Knockout Stages', ['Draws decided by penalty shootout.', 'Three penalties per team.', 'Then sudden death if tied.', 'Penalty takers must be registered players.', 'Coin toss may be used if required.']], ['Referee & Match Officials', ['Match officials have final decision on incidents.', 'For uncovered matters, officials/organizers decision is final.', 'Teams must follow officials instructions.']], ['Spectators & Supporters', ['Remain in designated seating area.', 'No entry to playing area during match.', 'Appropriate conduct required.']]];
 function Rules() {
@@ -1458,31 +1596,52 @@ function LineupEditor({
   D,
   call
 }) {
+  const MAXS = 6,
+    MINS = 4;
   const squad = D.players.filter(p => p.team_id === team.id);
   const saved = D.lineups.filter(l => l.match_id === m.id && l.team_id === team.id);
-  const [sel, setSel] = useState(() => new Set(saved.length ? saved.filter(l => l.starter).map(l => l.player_id) : squad.slice(0, 6).map(p => p.id)));
+  const [sel, setSel] = useState(() => new Set(saved.length ? saved.filter(l => l.starter).map(l => l.player_id) : squad.slice(0, MAXS).map(p => p.id)));
+  const n = sel.size,
+    bad = n > MAXS || n < MINS;
   const toggle = pid => setSel(s => {
-    const n = new Set(s);
-    n.has(pid) ? n.delete(pid) : n.add(pid);
-    return n;
+    const x = new Set(s);
+    if (x.has(pid)) x.delete(pid);else if (x.size < MAXS) x.add(pid);
+    return x;
   });
   return React.createElement("div", {
     style: {
       marginBottom: 12
     }
   }, React.createElement("b", null, team.code), " ", React.createElement("span", {
-    className: "muted"
-  }, "starting: ", sel.size), React.createElement("div", {
+    className: bad ? 'err' : 'muted'
+  }, "starting: ", n, " of ", MAXS), squad.length < 10 && React.createElement("div", {
+    className: "note"
+  }, "Squad has ", squad.length, " players. 6 starters and 4 substitutes need 10."), n > MAXS && React.createElement("div", {
+    className: "err"
+  }, "Too many starters. Untick ", n - MAXS, "."), n < MINS && React.createElement("div", {
+    className: "err"
+  }, "At least ", MINS, " starters are needed to play."), n >= MINS && n < MAXS && React.createElement("div", {
+    className: "note"
+  }, "Fewer than ", MAXS, " starters. Allowed down to ", MINS, "."), React.createElement("div", {
     className: "row"
-  }, squad.map(p => React.createElement("label", {
-    key: p.id,
-    className: "chk"
-  }, React.createElement("input", {
-    type: "checkbox",
-    checked: sel.has(p.id),
-    onChange: () => toggle(p.id)
-  }), p.name, p.is_captain ? ' (C)' : '', p.role ? ' · ' + p.role : ''))), React.createElement("button", {
+  }, squad.map(p => {
+    const on = sel.has(p.id),
+      off = !on && n >= MAXS;
+    return React.createElement("label", {
+      key: p.id,
+      className: "chk",
+      style: off ? {
+        opacity: .45
+      } : null
+    }, React.createElement("input", {
+      type: "checkbox",
+      checked: on,
+      disabled: off,
+      onChange: () => toggle(p.id)
+    }), p.name, p.is_captain ? ' (C)' : '', p.role ? ' · ' + p.role : '');
+  })), React.createElement("button", {
     className: "btn ghost",
+    disabled: bad,
     onClick: () => call('save_lineup', {
       p_match: m.id,
       p_team: team.id,
@@ -1751,6 +1910,7 @@ function Admin({
   } = useContext(Ctx);
   const [msg, setMsg] = useState('');
   const [open, setOpen] = useState(null);
+  const [showB, setShowB] = useState(false);
   const call = async (fn, args) => {
     const {
       error
@@ -1877,6 +2037,15 @@ function Admin({
     className: "row"
   }, React.createElement("button", {
     className: "btn ghost",
+    onClick: () => setShowB(v => !v)
+  }, showB ? 'Hide bracket pairings' : 'Edit bracket pairings')), showB && React.createElement(BracketEditor, {
+    D: D,
+    R: R,
+    call: call
+  }), React.createElement("div", {
+    className: "row"
+  }, React.createElement("button", {
+    className: "btn ghost",
     onClick: genWomen
   }, "Create women's fixtures"), React.createElement("button", {
     className: "btn ghost",
@@ -1946,19 +2115,25 @@ function MatchEditor({
     className: "scoreinput",
     type: "number",
     min: "0",
+    max: "99",
+    step: "1",
+    inputMode: "numeric",
     value: s.a,
     onChange: e => setS({
       ...s,
-      a: +e.target.value
+      a: nn(e.target.value)
     })
   }), React.createElement("span", null, "-"), React.createElement("input", {
     className: "scoreinput",
     type: "number",
     min: "0",
+    max: "99",
+    step: "1",
+    inputMode: "numeric",
     value: s.b,
     onChange: e => setS({
       ...s,
-      b: +e.target.value
+      b: nn(e.target.value)
     })
   }), React.createElement("span", null, b.code), React.createElement("select", {
     value: s.st,
@@ -1979,18 +2154,26 @@ function MatchEditor({
   }, "Penalties"), React.createElement("input", {
     className: "scoreinput",
     type: "number",
+    min: "0",
+    max: "99",
+    step: "1",
+    inputMode: "numeric",
     value: s.pa,
     onChange: e => setS({
       ...s,
-      pa: e.target.value
+      pa: e.target.value === '' ? '' : nn(e.target.value)
     })
   }), React.createElement("span", null, "-"), React.createElement("input", {
     className: "scoreinput",
     type: "number",
+    min: "0",
+    max: "99",
+    step: "1",
+    inputMode: "numeric",
     value: s.pb,
     onChange: e => setS({
       ...s,
-      pb: e.target.value
+      pb: e.target.value === '' ? '' : nn(e.target.value)
     })
   })), React.createElement("div", {
     className: "row"
@@ -2002,19 +2185,25 @@ function MatchEditor({
     className: "scoreinput",
     type: "number",
     min: "0",
+    max: "99",
+    step: "1",
+    inputMode: "numeric",
     value: s.ya,
     onChange: e => setS({
       ...s,
-      ya: +e.target.value
+      ya: nn(e.target.value)
     })
   }), React.createElement("span", null, b.code), React.createElement("input", {
     className: "scoreinput",
     type: "number",
     min: "0",
+    max: "99",
+    step: "1",
+    inputMode: "numeric",
     value: s.yb,
     onChange: e => setS({
       ...s,
-      yb: +e.target.value
+      yb: nn(e.target.value)
     })
   })), React.createElement("div", {
     className: "row"
@@ -2026,19 +2215,25 @@ function MatchEditor({
     className: "scoreinput",
     type: "number",
     min: "0",
+    max: "99",
+    step: "1",
+    inputMode: "numeric",
     value: s.ra,
     onChange: e => setS({
       ...s,
-      ra: +e.target.value
+      ra: nn(e.target.value)
     })
   }), React.createElement("span", null, b.code), React.createElement("input", {
     className: "scoreinput",
     type: "number",
     min: "0",
+    max: "99",
+    step: "1",
+    inputMode: "numeric",
     value: s.rb,
     onChange: e => setS({
       ...s,
-      rb: +e.target.value
+      rb: nn(e.target.value)
     })
   })), React.createElement("div", {
     className: "row"
@@ -2108,7 +2303,7 @@ function MatchEditor({
     value: gl.min,
     onChange: e => setGl({
       ...gl,
-      min: e.target.value
+      min: e.target.value === '' ? '' : String(Math.min(nn(e.target.value), 120))
     })
   }), React.createElement("label", null, React.createElement("input", {
     type: "checkbox",
@@ -2369,4 +2564,4 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App, null));
 </script>
 </body>
-</html>F
+</html>
