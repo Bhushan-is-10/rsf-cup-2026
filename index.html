@@ -1833,7 +1833,7 @@ function Home({
 }) {
   const men = D.matches.filter(m => !isWomen(m));
   const live = men.filter(m => m.status === 'live');
-  const next = men.filter(m => m.status === 'scheduled' && R.sides(m).a && R.sides(m).b).sort(byTime).slice(0, 5);
+  const next = men.filter(m => m.status === 'scheduled' && R.sides(m).a && R.sides(m).b).sort(byTime).slice(0, 8);
   const recent = men.filter(isFinal).slice(-5).reverse();
   return React.createElement(React.Fragment, null, live.length > 0 && React.createElement(React.Fragment, null, React.createElement("h2", {
     className: "livehead"
